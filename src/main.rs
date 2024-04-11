@@ -81,6 +81,8 @@ impl WindowHandler for Emulator {
                 VirtualKeyCode::M => self.cpu.print_memory(),
                 VirtualKeyCode::R => self.cpu.print_registers(),
                 VirtualKeyCode::C => if self.debug_mode {self.cpu.emulate_cycle()},
+                VirtualKeyCode::L => self.cpu.detailed_logging = !self.cpu.detailed_logging,
+                VirtualKeyCode::I => self.cpu.print_value_at_i(),
                 _ => (),
             },
             _ => (),

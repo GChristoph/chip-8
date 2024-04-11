@@ -14,6 +14,7 @@ pub struct CPU {
     max_stack_size: usize,
     pub redraw: bool,
     panic: bool,
+    pub detailed_logging: bool,
 }
 
 impl CPU {
@@ -33,6 +34,7 @@ impl CPU {
             max_stack_size,
             redraw: true,
             panic: false,
+            detailed_logging: false,
         };
         cpu.memory[20..100].copy_from_slice(font);
 
@@ -51,6 +53,10 @@ impl CPU {
         let nc = (instruction & 0x00F0) >> 4;
         let nd = instruction & 0x000F;
 
+        if self.detailed_logging {
+            println!("Instruction: {:x} {:x} {:x} {:x}", na, nb, nc, nd);
+        }
+
         match na {
             0x0 => {
                 match instruction {
@@ -66,7 +72,7 @@ impl CPU {
             0x5 => self.skip_if_x_equals_y(nb, nc),
             0x6 => self.set_register_vx(nb, (nc << 4 | nd) as u8),
             0x7 => self.add_to_register_vx(nb, (nc << 4 | nd) as u8),
-            0x8 => self.arithmetic_instructions(na, nb, nc),
+            0x8 => self.arithmetic_instructions(nb, nc, nd),
             0x9 => self.skip_if_x_not_equals_y(nb, nc),
             0xA => self.set_index_register(nb << 8 | nc << 4 | nd),
             0xB => self.jump_with_offset(nb << 8 | nc << 4 | nd),
@@ -79,7 +85,7 @@ impl CPU {
     /// 0x00E0
     /// Clear the screen
     fn clear_screen(&mut self) {
-        println!("Clear screen");
+        // println!("Clear screen");
         self.frame_buffer.fill(false);
     }
 
@@ -141,14 +147,14 @@ impl CPU {
     /// 0x6XNN
     /// Store number NN in register VX
     fn set_register_vx(&mut self, register: u16, number: u8) {
-        println!("Set register {:x}, {:x}", register, number);
+        //println!("Set register {:x}, {:x}", register, number);
         self.registers[register as usize] = number;
     }
 
     /// 0x7XNN
     /// Add the value NN to register VX
     fn add_to_register_vx(&mut self, register: u16, number: u8) {
-        println!("Add to register {:x} {:x}", register, number);
+        // println!("Add to register {:x} {:x}", register, number);
         let value = self.get_value_of_register(register) as u8;
         (self.registers[register as usize], _) = value.overflowing_add(number);
     }
@@ -156,7 +162,7 @@ impl CPU {
     /// 0x8...
     /// Handler for the 0x8 instruction family
     fn arithmetic_instructions(&mut self, nb: u16, nc: u16, nd: u16) {
-        match nc {
+        match nd {
             0x0 => self.store_vy_in_vx(nb, nc),
             0x1 => self.set_vx_to_vx_or_vy(nb, nc),
             0x2 => self.set_vx_to_vx_and_vy(nb, nc),
@@ -174,7 +180,7 @@ impl CPU {
     /// Store the value of register VY in register VX
     fn store_vy_in_vx(&mut self, x: u16, y: u16) {
         let y_value = self.get_value_of_register(y);
-        self.set_value_of_register(x, y_value)
+        self.set_value_of_register(x, y_value);
     }
 
     /// 0x8XY1
@@ -268,7 +274,7 @@ impl CPU {
     /// 0xANNN
     /// Store memory address NNN in register I
     fn set_index_register(&mut self, value: u16) {
-        println!("set Index register {:x}", value);
+        // println!("set Index register {:x}", value);
         self.i_register = value;
     }
 
@@ -290,10 +296,10 @@ impl CPU {
     /// 0xDXYN
     /// Draw a sprite to the screen
     fn draw_sprite(&mut self, register_x: u16, register_y: u16, n: u16) {
-        println!("Draw sprite {:x}, {:x}, {:x}, {:x}", register_x, register_y, n, self.i_register);
+        //println!("Draw sprite {:x}, {:x}, {:x}, {:x}", register_x, register_y, n, self.i_register);
         let mut x_coordinate = self.registers[register_x as usize];
         let mut y_coordinate = self.registers[register_y as usize];
-        println!("X: {}, Y: {}", x_coordinate, y_coordinate);
+        //println!("X: {}, Y: {}", x_coordinate, y_coordinate);
         if x_coordinate > 63 {
             x_coordinate = (x_coordinate + 1) % 64;
         }
@@ -379,7 +385,7 @@ impl CPU {
     /// Store the binary-coded decimal equivalent of the value stored in register VX at addresses I, I + 1, and I + 2
     fn store_decimal_at_i(&mut self, x: u16) {
         let mut value = self.get_value_of_register(x);
-        for i in 3..0 {
+        for i in (0..3).rev() {
             self.memory[(self.i_register as usize) + i] = (value % 10) as u8;
             value /= 10;
         }
@@ -389,22 +395,21 @@ impl CPU {
     /// Store the values of registers V0 to VX inclusive in memory starting at address I
     /// I is set to I + X + 1 after operation²
     fn store_register_values_in_memory(&mut self, x: u16) {
-        for i in 0..x {
+        for i in 0..(x+1) {
             self.memory[self.i_register as usize] = self.get_value_of_register(i as u16) as u8;
             self.i_register += 1;
         }
-        self.i_register += 1;
     }
 
     /// 0xFX65
     /// Fill registers V0 to VX inclusive with the values stored in memory starting at address I
     /// I is set to I + X + 1 after operation²
     fn load_register_values_from_memory(&mut self, x: u16) {
-        for i in 0..x {
-            self.set_value_of_register(i as u16, self.memory[self.i_register as usize] as u16);
+        for i in 0..(x+1) {
+            let value = self.memory[self.i_register as usize] as u16;
+            self.set_value_of_register(i as u16, value);
             self.i_register += 1;
         }
-        self.i_register += 1;
     }
 
     fn get_value_of_register(&self, register: u16) -> u16 {
@@ -433,7 +438,7 @@ impl CPU {
             }
             println!();
             // Temporarily we don't need to print out more than that of the memory
-            if i * 32 > 1000 {
+            if i * 32 > 1500 {
                 break;
             }
         }
@@ -458,6 +463,11 @@ impl CPU {
         }
         println!();
         println!("Index: {:>3x}", self.i_register);
+    }
+
+    pub fn print_value_at_i(&self) {
+        let value = self.memory[self.i_register as usize];
+        println!("I: {:x}", value);
     }
 
     pub fn set_program(&mut self, data: &[u8]) {
