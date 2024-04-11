@@ -99,7 +99,7 @@ fn read_ch8(file_path: &str) -> Vec<u8> {
 }
 
 fn main() {
-    let program = read_ch8(TC2);
+    let program = read_ch8(TC3);
     let mut cpu = CPU::new(&FONT, DEFAULT_MEMORY_SIZE, DEFAULT_FRAME_BUFFER_SIZE, DEFAULT_MAX_STACK_SIZE);
     cpu.set_program(&program);
     let window = Window::new_centered("Title", (SCREEN_WIDTH, SCREEN_HEIGHT)).unwrap();

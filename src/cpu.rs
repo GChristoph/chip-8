@@ -67,8 +67,8 @@ impl CPU {
             },
             0x1 => self.jump_to_address(nb << 8 | nc << 4 | nd),
             0x2 => self.jump_to_subroutine(nb << 8 | nc << 4 | nd),
-            0x3 => self.skip_if_equal(nb, nc << 4| nd),
-            0x4 => self.skip_if_not_equal(nb, nc << 4| nd),
+            0x3 => self.skip_if_equal(nb, (nc << 4| nd) as u8),
+            0x4 => self.skip_if_not_equal(nb, (nc << 4| nd) as u8),
             0x5 => self.skip_if_x_equals_y(nb, nc),
             0x6 => self.set_register_vx(nb, (nc << 4 | nd) as u8),
             0x7 => self.add_to_register_vx(nb, (nc << 4 | nd) as u8),
@@ -118,7 +118,7 @@ impl CPU {
 
     /// 0x3XNN
     /// Skip the following instruction if the value of register VX equals NN
-    fn skip_if_equal(&mut self, register: u16, value: u16) {
+    fn skip_if_equal(&mut self, register: u16, value: u8) {
         let reg_value = self.get_value_of_register(register);
         if reg_value == value {
             self.pc += 2;
@@ -127,7 +127,7 @@ impl CPU {
 
     /// 0x4XNN
     /// Skip the following instruction if the value of register VX is not equal to NN
-    fn skip_if_not_equal(&mut self, register: u16, value: u16) {
+    fn skip_if_not_equal(&mut self, register: u16, value: u8) {
         let reg_value = self.get_value_of_register(register);
         if reg_value != value {
             self.pc += 2;
@@ -217,7 +217,7 @@ impl CPU {
         let y_value = self.get_value_of_register(y);
         let (value, carry) = x_value.overflowing_add(y_value);
         self.set_value_of_register(x, value);
-        self.set_value_of_register(0xF, carry as u16);
+        self.set_value_of_register(0xF, carry as u8);
     }
 
     /// 0x8XY5
@@ -227,7 +227,7 @@ impl CPU {
         let y_value = self.get_value_of_register(y);
         let (value, borrow) = x_value.overflowing_sub(y_value);
         self.set_value_of_register(x, value);
-        self.set_value_of_register(0xF, !borrow as u16);
+        self.set_value_of_register(0xF, !borrow as u8);
     }
 
     /// 0x8XY6
@@ -247,17 +247,17 @@ impl CPU {
         let y_value = self.get_value_of_register(y);
         let (value, borrow) = y_value.overflowing_sub(x_value);
         self.set_value_of_register(x, value);
-        self.set_value_of_register(0xF, !borrow as u16);
+        self.set_value_of_register(0xF, !borrow as u8);
     }
 
     /// 0x8XYE
     /// Shift VY left one bit and store in VX
-    /// Set VF to the prior least significant bit
+    /// Set VF to the prior most significant bit
     fn shift_vy_one_left_store_in_vx(&mut self, x: u16, y: u16) {
         let y_value = self.get_value_of_register(y);
         let value = y_value << 1;
         self.set_value_of_register(x, value);
-        self.set_value_of_register(0xF, y_value & 0b1000_0000);
+        self.set_value_of_register(0xF, (y_value & 0b1000_0000) >> 7);
     }
 
 
@@ -281,14 +281,14 @@ impl CPU {
     /// 0xBNNN
     /// Jump with offset
     fn jump_with_offset(&mut self, value: u16) {
-        let reg_0 = self.get_value_of_register(0x0);
+        let reg_0 = self.get_value_of_register(0x0) as u16;
         self.pc = value + reg_0;
     }
 
     /// 0xCXNN
     /// Set VX to a random number with mask NN
-    fn set_masked_random(&mut self, x: u16, mask: u16) {
-        let number: u16 = rand::random();
+    fn set_masked_random(&mut self, x: u16, mask: u8) {
+        let number: u8 = rand::random();
         let number = number & mask;
         self.set_value_of_register(x, number);
     }
@@ -355,7 +355,7 @@ impl CPU {
     /// 0xFX07
     /// Store the current value of the delay timer in register VX
     fn store_delay_timer_in_vx(&mut self, x: u16) {
-        let delay_timer = self.delay_timer as u16;
+        let delay_timer = self.delay_timer;
         self.set_value_of_register(x, delay_timer);
     }
 
@@ -374,7 +374,7 @@ impl CPU {
     /// 0xFX1E
     /// Add the value stored in register VX to register I
     fn add_vx_to_i(&mut self, x: u16) {
-        let value = self.get_value_of_register(x);
+        let value = self.get_value_of_register(x) as u16;
         self.i_register += value;
     }
 
@@ -386,7 +386,7 @@ impl CPU {
     fn store_decimal_at_i(&mut self, x: u16) {
         let mut value = self.get_value_of_register(x);
         for i in (0..3).rev() {
-            self.memory[(self.i_register as usize) + i] = (value % 10) as u8;
+            self.memory[(self.i_register as usize) + i] = value % 10;
             value /= 10;
         }
     }
@@ -406,18 +406,18 @@ impl CPU {
     /// I is set to I + X + 1 after operation²
     fn load_register_values_from_memory(&mut self, x: u16) {
         for i in 0..(x+1) {
-            let value = self.memory[self.i_register as usize] as u16;
+            let value = self.memory[self.i_register as usize];
             self.set_value_of_register(i as u16, value);
             self.i_register += 1;
         }
     }
 
-    fn get_value_of_register(&self, register: u16) -> u16 {
-        self.registers[register as usize] as u16
+    fn get_value_of_register(&self, register: u16) -> u8 {
+        self.registers[register as usize]
     }
 
-    fn set_value_of_register(&mut self, register: u16, value: u16) {
-        self.registers[register as usize] = value as u8;
+    fn set_value_of_register(&mut self, register: u16, value: u8) {
+        self.registers[register as usize] = value
     }
 
     fn panic_unknown_instruction(&mut self, instruction: u16) {
