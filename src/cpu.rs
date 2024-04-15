@@ -253,6 +253,7 @@ impl CPU {
         let x_value = self.get_value_of_register(x);
         let y_value = self.get_value_of_register(y);
         let value = x_value | y_value;
+        self.reset_flag_register();
         self.set_value_of_register(x, value)
     }
 
@@ -262,6 +263,7 @@ impl CPU {
         let x_value = self.get_value_of_register(x);
         let y_value = self.get_value_of_register(y);
         let value = x_value & y_value;
+        self.reset_flag_register();
         self.set_value_of_register(x, value)
     }
 
@@ -271,6 +273,7 @@ impl CPU {
         let x_value = self.get_value_of_register(x);
         let y_value = self.get_value_of_register(y);
         let value = x_value ^ y_value;
+        self.reset_flag_register();
         self.set_value_of_register(x, value)
     }
 
@@ -361,27 +364,28 @@ impl CPU {
     /// Draw a sprite to the screen
     fn draw_sprite(&mut self, register_x: u16, register_y: u16, n: u16) {
         //println!("Draw sprite {:x}, {:x}, {:x}, {:x}", register_x, register_y, n, self.i_register);
-        let mut x_coordinate = self.registers[register_x as usize];
-        let mut y_coordinate = self.registers[register_y as usize];
-        //println!("X: {}, Y: {}", x_coordinate, y_coordinate);
+        let mut x_coordinate = self.registers[register_x as usize] as u16;
+        let mut y_coordinate = self.registers[register_y as usize] as u16;
         if x_coordinate > 63 {
-            x_coordinate = (x_coordinate + 1) % 64;
+            x_coordinate = x_coordinate % 64;
         }
         if y_coordinate > 31 {
-            y_coordinate = (y_coordinate + 1) % 32;
+            y_coordinate = y_coordinate % 32;
         }
 
         self.registers[0xF] = 0;
         for i in 0..n {
             let row = self.memory[(self.i_register + i) as usize];
-            let y = ((y_coordinate as usize) + i as usize) * 64;
+            let y = ((y_coordinate + i) as usize) * 64;
+            if y_coordinate + i > 31 {
+                break;
+            }
             for j in 0..8 {
                 let pixel = (row & (0x1 << (7-j))) >> (7-j);
                 let x = (x_coordinate + j) as usize;
-                // Break if the draw would go over the border of the screen
-                if x >= 64 {
-                    //panic!("The draw would go over the border of the screen");
-                     break;
+
+                if x > 63 {
+                    break;
                 }
 
                 if pixel == 1 {
@@ -534,6 +538,10 @@ impl CPU {
 
     fn set_value_of_register(&mut self, register: u16, value: u8) {
         self.registers[register as usize] = value
+    }
+
+    fn reset_flag_register(&mut self) {
+        self.set_value_of_register(0xF, 0)
     }
 
     fn panic_unknown_instruction(&mut self, instruction: u16) {

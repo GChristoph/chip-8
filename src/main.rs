@@ -21,6 +21,7 @@ const TC4: &str = "test-programs/5-quirks.ch8";
 const TC5: &str = "test-programs/6-keypad.ch8";
 
 const G1: &str  = "games/br8kout.ch8";
+const G2: &str  = "games/spaceracer.ch8";
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -71,7 +72,7 @@ impl Emulator {
     }
 
     fn emulate_cycle(&mut self) {
-        self.print_fps();
+        // self.print_fps();
 
         let delta = self.last_cycle.elapsed();
         self.cpu.emulate_cycle(delta, &self.keypad);
@@ -189,6 +190,6 @@ fn main() {
     let options = WindowCreationOptions::new_windowed(WindowSize::PhysicalPixels(UVec2::new(SCREEN_WIDTH, SCREEN_HEIGHT)), None).with_vsync(false);
     let window = Window::new_with_options("Title", options).unwrap();
 
-    window.run_loop(Emulator::new(cpu, 700, false));
+    window.run_loop(Emulator::new(cpu, 10000, false));
 
 }
