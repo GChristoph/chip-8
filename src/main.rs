@@ -1,7 +1,7 @@
 mod cpu;
 mod keypad;
 
-use std::{fs::File, io::Read, time::{Duration, Instant, SystemTime}};
+use std::{fs::File, io::Read, thread, time::{Duration, Instant}};
 
 use crate::cpu::*;
 use keypad::{Keypad, KEY_MAP};
@@ -19,6 +19,8 @@ const TC2: &str = "test-programs/3-corax+.ch8";
 const TC3: &str = "test-programs/4-flags.ch8";
 const TC4: &str = "test-programs/5-quirks.ch8";
 const TC5: &str = "test-programs/6-keypad.ch8";
+
+const G1: &str  = "games/br8kout.ch8";
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -44,37 +46,59 @@ static SECOND: Duration = Duration::from_secs(1);
 struct Emulator {
     cpu: CPU,
     debug_mode: bool,
-    last_cycle: Instant,
     keypad: Keypad,
+    last_cycle: Instant,
+    target_cycle_duration: Duration,
+
     cycle_counter: usize,
-    duration: Duration,
+    fps_duratin_counter: Instant,
+    fps_measurement_duration: Duration,
 }
 
 impl Emulator {
-    fn new (cpu: CPU, debug_mode: bool) -> Self {
+    fn new (cpu: CPU, target_fps: u64, debug_mode: bool) -> Self {
+        let duration = Duration::from_micros(1_000_000 / target_fps);
         Self {
             cpu,
             debug_mode,
-            last_cycle: Instant::now(),
             keypad: Keypad::new(),
             cycle_counter: 0,
-            duration: Duration::new(0, 0),
+            target_cycle_duration: duration,
+            fps_measurement_duration: Duration::new(0, 0),
+            last_cycle: Instant::now(),
+            fps_duratin_counter: Instant::now(),
         }
     }
 
     fn emulate_cycle(&mut self) {
-        let difference = self.last_cycle.elapsed();
-        self.duration += difference;
-        if self.duration > SECOND {
-            self.duration = Duration::from_secs(0);
-            // println!("Cycles this second: {}", self.cycle_counter);
-            self.cycle_counter = 0;
-        }
+        self.print_fps();
 
-        self.cpu.emulate_cycle(difference, &self.keypad);
-        self.last_cycle = Instant::now();
+        let delta = self.last_cycle.elapsed();
+        self.cpu.emulate_cycle(delta, &self.keypad);
+        self.synch_fps(delta);
 
         self.cycle_counter += 1;
+        self.last_cycle = Instant::now();
+    }
+
+    fn synch_fps(&mut self, delta: Duration) {
+        if delta > self.target_cycle_duration {
+            return;
+        }
+        let difference = self.target_cycle_duration - delta;
+        //println!("Difference: {:?}", difference);
+        thread::sleep(difference);
+    }
+
+    fn print_fps(&mut self) {
+        let difference = self.fps_duratin_counter.elapsed();
+        self.fps_duratin_counter = Instant::now();
+        self.fps_measurement_duration += difference;
+        if self.fps_measurement_duration > SECOND {
+            self.fps_measurement_duration = Duration::from_secs(0);
+            println!("Cycles this second: {}", self.cycle_counter);
+            self.cycle_counter = 0;
+        }
     }
 }
 
@@ -159,12 +183,12 @@ fn read_ch8(file_path: &str) -> Vec<u8> {
 }
 
 fn main() {
-    let program = read_ch8(TC5);
+    let program = read_ch8(G1);
     let mut cpu = CPU::new(&FONT, DEFAULT_MEMORY_SIZE, DEFAULT_FRAME_BUFFER_SIZE, DEFAULT_MAX_STACK_SIZE);
     cpu.set_program(&program);
     let options = WindowCreationOptions::new_windowed(WindowSize::PhysicalPixels(UVec2::new(SCREEN_WIDTH, SCREEN_HEIGHT)), None).with_vsync(false);
     let window = Window::new_with_options("Title", options).unwrap();
 
-    window.run_loop(Emulator::new(cpu, false));
+    window.run_loop(Emulator::new(cpu, 700, false));
 
 }

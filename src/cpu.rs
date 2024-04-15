@@ -105,6 +105,7 @@ impl CPU {
             0x9 => self.skip_if_x_not_equals_y(nb, nc),
             0xA => self.set_index_register(nb << 8 | nc << 4 | nd),
             0xB => self.jump_with_offset(nb << 8 | nc << 4 | nd),
+            0xC => self.set_masked_random(nb, (nc << 4 | nd) as u8),
             0xD => self.draw_sprite(nb, nc, nd),
             0xE => self.e_instructions(nb, nc, nd),
             0xF => self.f_instructions(nb, nc, nd),
