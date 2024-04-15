@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::keypad::{self, Keypad};
+use std::time::Duration;
 
 #[derive(PartialEq)]
 enum CPUState {
@@ -31,9 +31,13 @@ pub struct CPU {
     time_since_last_decrease: Duration,
 }
 
-
 impl CPU {
-    pub fn new(font: &[u8], memory_size: usize, frame_buffer_size: usize, max_stack_size: usize) -> Self {
+    pub fn new(
+        font: &[u8],
+        memory_size: usize,
+        frame_buffer_size: usize,
+        max_stack_size: usize,
+    ) -> Self {
         let mut cpu = Self {
             pc: 0x200,
             i_register: 0,
@@ -75,7 +79,8 @@ impl CPU {
     }
 
     fn execute_instruction(&mut self) {
-        let instruction: u16 = (self.memory[self.pc as usize] as u16) << 8 | (self.memory[(self.pc + 1) as usize] as u16);
+        let instruction: u16 = (self.memory[self.pc as usize] as u16) << 8
+            | (self.memory[(self.pc + 1) as usize] as u16);
         self.pc += 2;
         let na = (instruction & 0xF000) >> 12;
         let nb = (instruction & 0x0F00) >> 8;
@@ -93,11 +98,11 @@ impl CPU {
                     0x00EE => self.return_from_subroutine(),
                     _ => self.panic_unknown_instruction(instruction),
                 };
-            },
+            }
             0x1 => self.jump_to_address(nb << 8 | nc << 4 | nd),
             0x2 => self.jump_to_subroutine(nb << 8 | nc << 4 | nd),
-            0x3 => self.skip_if_equal(nb, (nc << 4| nd) as u8),
-            0x4 => self.skip_if_not_equal(nb, (nc << 4| nd) as u8),
+            0x3 => self.skip_if_equal(nb, (nc << 4 | nd) as u8),
+            0x4 => self.skip_if_not_equal(nb, (nc << 4 | nd) as u8),
             0x5 => self.skip_if_x_equals_y(nb, nc),
             0x6 => self.set_register_vx(nb, (nc << 4 | nd) as u8),
             0x7 => self.add_to_register_vx(nb, (nc << 4 | nd) as u8),
@@ -121,7 +126,7 @@ impl CPU {
                     // the callback requires the key to be released again.
                     self.keypad = keypad.clone();
                     handler(self, keycode as u8)
-                },
+                }
                 None => panic!("Wanted to call interrupt handler, bot none is registered"),
             }
         }
@@ -327,7 +332,6 @@ impl CPU {
         self.set_value_of_register(0xF, (y_value & 0b1000_0000) >> 7);
     }
 
-
     /// 0x9XY0
     /// Skip the following instruction if the value of register VX is not equal to the value of register VY
     fn skip_if_x_not_equals_y(&mut self, x: u16, y: u16) {
@@ -381,7 +385,7 @@ impl CPU {
                 break;
             }
             for j in 0..8 {
-                let pixel = (row & (0x1 << (7-j))) >> (7-j);
+                let pixel = (row & (0x1 << (7 - j))) >> (7 - j);
                 let x = (x_coordinate + j) as usize;
 
                 if x > 63 {
@@ -454,7 +458,6 @@ impl CPU {
             0x65 => self.load_register_values_from_memory(nb),
             _ => self.panic_unknown_instruction(0xF << 12 | nb << 8 | encoded),
         };
-
     }
 
     /// 0xFX07
@@ -490,7 +493,6 @@ impl CPU {
         self.sound_timer = self.get_value_of_register(x);
     }
 
-
     /// 0xFX1E
     /// Add the value stored in register VX to register I
     fn add_vx_to_i(&mut self, x: u16) {
@@ -515,7 +517,7 @@ impl CPU {
     /// Store the values of registers V0 to VX inclusive in memory starting at address I
     /// I is set to I + X + 1 after operation²
     fn store_register_values_in_memory(&mut self, x: u16) {
-        for i in 0..(x+1) {
+        for i in 0..(x + 1) {
             self.memory[self.i_register as usize] = self.get_value_of_register(i as u16) as u8;
             self.i_register += 1;
         }
@@ -525,7 +527,7 @@ impl CPU {
     /// Fill registers V0 to VX inclusive with the values stored in memory starting at address I
     /// I is set to I + X + 1 after operation²
     fn load_register_values_from_memory(&mut self, x: u16) {
-        for i in 0..(x+1) {
+        for i in 0..(x + 1) {
             let value = self.memory[self.i_register as usize];
             self.set_value_of_register(i as u16, value);
             self.i_register += 1;
@@ -596,6 +598,6 @@ impl CPU {
     }
 
     pub fn set_program(&mut self, data: &[u8]) {
-        self.memory[512..512+data.len()].copy_from_slice(data);
+        self.memory[512..512 + data.len()].copy_from_slice(data);
     }
 }

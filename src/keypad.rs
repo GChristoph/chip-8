@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use speedy2d::window::VirtualKeyCode;
+use std::collections::HashMap;
 
 lazy_static::lazy_static! {
     /// Real Keypad:
@@ -41,9 +41,7 @@ pub struct Keypad {
 
 impl Keypad {
     pub fn new() -> Self {
-        Keypad {
-            keys: [false; 16],
-        }
+        Keypad { keys: [false; 16] }
     }
 
     pub fn get_new_key_release(&self, new: &Keypad) -> Option<usize> {
@@ -66,5 +64,4 @@ impl Keypad {
     pub fn is_key_pressed(&self, id: usize) -> bool {
         self.keys[id]
     }
-
 }
