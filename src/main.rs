@@ -1,9 +1,11 @@
 mod cpu;
+mod keypad;
 
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, time::{Duration, Instant, SystemTime}};
 
 use crate::cpu::*;
-use speedy2d::{color::Color, shape::Rectangle, window::{VirtualKeyCode, WindowHandler}, Window};
+use keypad::{Keypad, KEY_MAP};
+use speedy2d::{color::Color, dimen::UVec2, shape::Rectangle, window::{VirtualKeyCode, WindowCreationOptions, WindowHandler, WindowSize}, Window};
 
 const DEFAULT_MEMORY_SIZE: usize = 4 * 1024;
 const DEFAULT_FRAME_BUFFER_SIZE: usize = 64 * 32;
@@ -15,6 +17,8 @@ const SCREEN_HEIGHT: u32 = 640;
 const TC1: &str = "test-programs/IBM Logo.ch8";
 const TC2: &str = "test-programs/3-corax+.ch8";
 const TC3: &str = "test-programs/4-flags.ch8";
+const TC4: &str = "test-programs/5-quirks.ch8";
+const TC5: &str = "test-programs/6-keypad.ch8";
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -35,9 +39,43 @@ const FONT: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 ];
 
+static SECOND: Duration = Duration::from_secs(1);
+
 struct Emulator {
     cpu: CPU,
     debug_mode: bool,
+    last_cycle: Instant,
+    keypad: Keypad,
+    cycle_counter: usize,
+    duration: Duration,
+}
+
+impl Emulator {
+    fn new (cpu: CPU, debug_mode: bool) -> Self {
+        Self {
+            cpu,
+            debug_mode,
+            last_cycle: Instant::now(),
+            keypad: Keypad::new(),
+            cycle_counter: 0,
+            duration: Duration::new(0, 0),
+        }
+    }
+
+    fn emulate_cycle(&mut self) {
+        let difference = self.last_cycle.elapsed();
+        self.duration += difference;
+        if self.duration > SECOND {
+            self.duration = Duration::from_secs(0);
+            // println!("Cycles this second: {}", self.cycle_counter);
+            self.cycle_counter = 0;
+        }
+
+        self.cpu.emulate_cycle(difference, &self.keypad);
+        self.last_cycle = Instant::now();
+
+        self.cycle_counter += 1;
+    }
 }
 
 impl WindowHandler for Emulator {
@@ -47,7 +85,7 @@ impl WindowHandler for Emulator {
             graphics: &mut speedy2d::Graphics2D
         ) {
         if !self.debug_mode {
-            self.cpu.emulate_cycle();
+            self.emulate_cycle();
         }
 
         if self.cpu.redraw || self.debug_mode || true {
@@ -71,23 +109,45 @@ impl WindowHandler for Emulator {
 
     fn on_key_down(
             &mut self,
-            _helper: &mut speedy2d::window::WindowHelper<()>,
+            helper: &mut speedy2d::window::WindowHelper<()>,
             virtual_key_code: Option<speedy2d::window::VirtualKeyCode>,
             _scancode: speedy2d::window::KeyScancode
         ) {
         match virtual_key_code {
             Some(vcode) => match vcode {
-                VirtualKeyCode::F => self.cpu.print_frame_buffer(),
+                VirtualKeyCode::B => self.cpu.print_frame_buffer(),
                 VirtualKeyCode::M => self.cpu.print_memory(),
-                VirtualKeyCode::R => self.cpu.print_registers(),
-                VirtualKeyCode::C => if self.debug_mode {self.cpu.emulate_cycle()},
+                VirtualKeyCode::P => self.cpu.print_registers(),
+                VirtualKeyCode::N => if self.debug_mode { self.emulate_cycle(); },
                 VirtualKeyCode::L => self.cpu.detailed_logging = !self.cpu.detailed_logging,
                 VirtualKeyCode::I => self.cpu.print_value_at_i(),
-                _ => (),
+                _ => {
+                    if KEY_MAP.contains_key(&vcode) {
+                        let id = KEY_MAP[&vcode];
+                        self.keypad.key_down(id);
+                    }
+                }
             },
             _ => (),
         };
+        helper.request_redraw();
     }
+
+    fn on_key_up(
+            &mut self,
+            helper: &mut speedy2d::window::WindowHelper<()>,
+            virtual_key_code: Option<VirtualKeyCode>,
+            _scancode: speedy2d::window::KeyScancode
+        ) {
+        if let Some(vcode) = virtual_key_code {
+            if KEY_MAP.contains_key(&vcode) {
+                let id = KEY_MAP[&vcode];
+                self.keypad.key_up(id);
+            }
+        }
+        helper.request_redraw();
+    }
+
 }
 
 fn read_ch8(file_path: &str) -> Vec<u8> {
@@ -99,10 +159,12 @@ fn read_ch8(file_path: &str) -> Vec<u8> {
 }
 
 fn main() {
-    let program = read_ch8(TC3);
+    let program = read_ch8(TC5);
     let mut cpu = CPU::new(&FONT, DEFAULT_MEMORY_SIZE, DEFAULT_FRAME_BUFFER_SIZE, DEFAULT_MAX_STACK_SIZE);
     cpu.set_program(&program);
-    let window = Window::new_centered("Title", (SCREEN_WIDTH, SCREEN_HEIGHT)).unwrap();
-    window.run_loop(Emulator{ cpu, debug_mode: false, });
+    let options = WindowCreationOptions::new_windowed(WindowSize::PhysicalPixels(UVec2::new(SCREEN_WIDTH, SCREEN_HEIGHT)), None).with_vsync(false);
+    let window = Window::new_with_options("Title", options).unwrap();
+
+    window.run_loop(Emulator::new(cpu, false));
 
 }

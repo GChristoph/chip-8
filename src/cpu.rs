@@ -1,3 +1,13 @@
+use std::time::Duration;
+use crate::keypad::{self, Keypad};
+
+#[derive(PartialEq)]
+enum CPUState {
+    Running,
+    Sleeping,
+    Panic,
+}
+
 pub struct CPU {
     pc: u16,
     i_register: u16,
@@ -7,15 +17,20 @@ pub struct CPU {
     memory: Vec<u8>,
     pub frame_buffer: Vec<bool>,
     stack: Vec<u16>,
-    keypad_input: u8,
+    keypad: Keypad,
+    keypad_interrupt: Option<fn(&mut CPU, u8)>,
+    interrupt_register: u16,
 
     memory_size: usize,
     frame_buffer_size: usize,
     max_stack_size: usize,
     pub redraw: bool,
-    panic: bool,
+    cpu_state: CPUState,
     pub detailed_logging: bool,
+
+    time_since_last_decrease: Duration,
 }
+
 
 impl CPU {
     pub fn new(font: &[u8], memory_size: usize, frame_buffer_size: usize, max_stack_size: usize) -> Self {
@@ -28,24 +43,38 @@ impl CPU {
             memory: vec![0; memory_size],
             frame_buffer: vec![false; frame_buffer_size],
             stack: vec![0; max_stack_size],
-            keypad_input: 0,
+            keypad: Keypad::new(),
+            keypad_interrupt: None,
+            interrupt_register: 0,
             memory_size,
             frame_buffer_size,
             max_stack_size,
             redraw: true,
-            panic: false,
+            cpu_state: CPUState::Running,
             detailed_logging: false,
+            time_since_last_decrease: Duration::new(0, 0),
         };
         cpu.memory[20..100].copy_from_slice(font);
 
         return cpu;
     }
 
-    pub fn emulate_cycle(&mut self,) {
-        if self.panic {
+    pub fn emulate_cycle(&mut self, delta: Duration, keypad: &Keypad) {
+        if self.cpu_state == CPUState::Panic {
             return;
         }
 
+        self.update_timers(delta);
+
+        match self.cpu_state {
+            CPUState::Running => self.execute_instruction(),
+            CPUState::Sleeping => self.handle_interrupt(keypad),
+            _ => (),
+        }
+        self.keypad = keypad.clone();
+    }
+
+    fn execute_instruction(&mut self) {
         let instruction: u16 = (self.memory[self.pc as usize] as u16) << 8 | (self.memory[(self.pc + 1) as usize] as u16);
         self.pc += 2;
         let na = (instruction & 0xF000) >> 12;
@@ -77,9 +106,43 @@ impl CPU {
             0xA => self.set_index_register(nb << 8 | nc << 4 | nd),
             0xB => self.jump_with_offset(nb << 8 | nc << 4 | nd),
             0xD => self.draw_sprite(nb, nc, nd),
+            0xE => self.e_instructions(nb, nc, nd),
             0xF => self.f_instructions(nb, nc, nd),
             _ => self.panic_unknown_instruction(instruction),
         };
+    }
+
+    fn handle_interrupt(&mut self, keypad: &Keypad) {
+        if let Some(keycode) = self.keypad.get_new_key_release(keypad) {
+            match self.keypad_interrupt {
+                Some(handler) => {
+                    // Before calling the handler we have to set the new keypad, since
+                    // the callback requires the key to be released again.
+                    self.keypad = keypad.clone();
+                    handler(self, keycode as u8)
+                },
+                None => panic!("Wanted to call interrupt handler, bot none is registered"),
+            }
+        }
+    }
+
+    /// Update timers with the duration that has elapsed since the last cycle
+    fn update_timers(&mut self, delta: Duration) {
+        self.time_since_last_decrease += delta;
+        let frequency_duration = Duration::from_millis(17);
+        if self.time_since_last_decrease >= frequency_duration {
+            self.decrease_timers();
+            self.time_since_last_decrease -= frequency_duration;
+        }
+    }
+
+    fn decrease_timers(&mut self) {
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
+        }
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
     }
 
     /// 0x00E0
@@ -97,7 +160,7 @@ impl CPU {
             Some(address) => self.pc = address,
             None => {
                 println!("Return from subroutine failed because stack was empty");
-                self.panic = true;
+                self.cpu_state = CPUState::Panic;
             }
         }
     }
@@ -335,19 +398,56 @@ impl CPU {
         self.redraw = true;
     }
 
+    fn e_instructions(&mut self, nb: u16, nc: u16, nd: u16) {
+        let encoded = nc << 4 | nd;
+        match encoded {
+            0x9E => self.skip_if_pressed(nb),
+            0xA1 => self.skip_if_not_pressed(nb),
+            _ => self.panic_unknown_instruction(0xE << 12 | nb << 8 | encoded),
+        }
+    }
+
     /// 0xEX9E
-    /// ...
+    /// Skip next instruction if key in VX is pressed
+    fn skip_if_pressed(&mut self, x: u16) {
+        let value = self.get_value_of_register(x);
+        if value > 16 {
+            println!("Keycode passed to 0xEX9E was > 16: {}", value);
+            self.cpu_state = CPUState::Panic;
+            return;
+        }
+        if self.keypad.is_key_pressed(value as usize) {
+            self.pc += 2;
+        }
+    }
+
+    /// 0xEXA1
+    /// Skip next instruction if the key in VX is NOT pressed
+    fn skip_if_not_pressed(&mut self, x: u16) {
+        let value = self.get_value_of_register(x);
+        if value > 16 {
+            println!("Keycode passed to 0xEX9E was > 16: {}", value);
+            self.cpu_state = CPUState::Panic;
+            return;
+        }
+        if !self.keypad.is_key_pressed(value as usize) {
+            self.pc += 2;
+        }
+    }
 
     /// F instruction family
     fn f_instructions(&mut self, nb: u16, nc: u16, nd: u16) {
         let encoded = nc << 4 | nd;
         match encoded {
             0x07 => self.store_delay_timer_in_vx(nb),
+            0x0A => self.store_next_keypress_in_vx(nb),
+            0x15 => self.set_timer_delay(nb),
+            0x18 => self.set_sound_delay(nb),
             0x1E => self.add_vx_to_i(nb),
             0x33 => self.store_decimal_at_i(nb),
             0x55 => self.store_register_values_in_memory(nb),
             0x65 => self.load_register_values_from_memory(nb),
-            _ => self.panic_unknown_instruction(0xE << 12 | nb << 8 | encoded),
+            _ => self.panic_unknown_instruction(0xF << 12 | nb << 8 | encoded),
         };
 
     }
@@ -362,14 +462,29 @@ impl CPU {
     /// 0xFX0A
     /// Wait for a keypress and store the result in register VX
     fn store_next_keypress_in_vx(&mut self, x: u16) {
+        self.interrupt_register = x;
+        self.keypad_interrupt = Some(CPU::store_next_keypress_in_vx_interrupt);
+        self.cpu_state = CPUState::Sleeping;
+    }
 
+    fn store_next_keypress_in_vx_interrupt(cpu: &mut CPU, keycode: u8) {
+        cpu.set_value_of_register(cpu.interrupt_register, keycode);
+        cpu.keypad_interrupt = None;
+        cpu.cpu_state = CPUState::Running;
     }
 
     /// 0xFX15
     /// Set the delay timer to the value of register VX
+    fn set_timer_delay(&mut self, x: u16) {
+        self.delay_timer = self.get_value_of_register(x);
+    }
 
     /// 0xFX18
     /// Set the sound timer to the value of register VX
+    fn set_sound_delay(&mut self, x: u16) {
+        self.sound_timer = self.get_value_of_register(x);
+    }
+
 
     /// 0xFX1E
     /// Add the value stored in register VX to register I
@@ -425,9 +540,9 @@ impl CPU {
         let nb = (instruction & 0x0F00) >> 8;
         let nc = (instruction & 0x00F0) >> 4;
         let nd = instruction & 0x000F;
-        println!("Unknown instruction {} {} {} {}", na, nb, nc, nd);
+        println!("Unknown instruction {:x} {:x} {:x} {:x}", na, nb, nc, nd);
         self.print_memory();
-        self.panic = true;
+        self.cpu_state = CPUState::Panic;
     }
 
     pub fn print_memory(&self) {
@@ -463,6 +578,7 @@ impl CPU {
         }
         println!();
         println!("Index: {:>3x}", self.i_register);
+        println!("PC:    {:>3x}", self.pc);
     }
 
     pub fn print_value_at_i(&self) {
